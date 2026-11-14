@@ -1,0 +1,23 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {resources,selectResources,checklist,noteText} from '../data-v2.js';import {readFile} from 'node:fs/promises';
+test('six verified resources',()=>assert.equal(resources.length,6));
+test('IDs unique',()=>assert.equal(new Set(resources.map(x=>x.id)).size,6));
+test('HTTPS official links only',()=>resources.forEach(x=>assert.equal(new URL(x.url).hostname,'www.formula1.com')));
+test('Korean query',()=>assert.equal(selectResources('일정','일정').length,1));
+test('English case normalization',()=>assert.equal(selectResources('CALENDAR').length,1));
+test('space normalization',()=>assert.equal(selectResources('드 라 이 버','팀·드라이버').length,1));
+test('category filter',()=>assert.equal(selectResources('','결과').length,2));
+test('empty result',()=>assert.equal(selectResources('없는말').length,0));
+test('empty query/reset',()=>assert.equal(selectResources().length,6));
+test('note contains checks and original unicode',()=>{const n=noteText('한국어','메모',[0]);assert.match(n,/한국어/);assert.match(n,/\[x\]/);assert.match(n,/\[ \]/);assert.match(n,/메모/);});
+test('note bounded input',()=>assert.ok(noteText('a'.repeat(1000),'b'.repeat(10000),[]).length<7000));
+test('no network or storage runtime',async()=>{const js=await readFile('app-v2.js','utf8');assert.ok(!/fetch\(|XMLHttpRequest|localStorage|sessionStorage/.test(js));assert.ok(!/innerHTML/.test(js));});
+test('project-subpath and root local assets',async()=>{for(const f of ['index.html','about.html']){const html=await readFile(`${f}`,'utf8');for(const [,link]of html.matchAll(/(?:href|src)="([^"]+)"/g)){if(link.startsWith('https:')||link.startsWith('#'))continue;assert.ok(link.startsWith('./'));for(const base of ['https://example.test/','https://example.test/pit-note/'])assert.ok(new URL(link,base).pathname.startsWith(new URL(base).pathname));}}});
+
+import {paths,toKorea} from '../planner-v2.js';
+test('four original paths only reference verified resources',()=>{assert.equal(paths.length,4);for(const p of paths){assert.equal(p.steps.length,3);p.resources.forEach(id=>assert.ok(resources.some(r=>r.id===id)));}});
+test('UTC to Korea crosses day',()=>assert.equal(toKorea('2026-11-14T18:30',0),'2026-11-15 03:30 KST (UTC+09:00)'));
+test('negative source offset and year rollover',()=>assert.equal(toKorea('2026-12-31T22:00',-8),'2027-01-01 15:00 KST (UTC+09:00)'));
+test('fractional offset',()=>assert.equal(toKorea('2026-11-14T12:00',5.5),'2026-11-14 15:30 KST (UTC+09:00)'));
+test('already Korea is unchanged',()=>assert.equal(toKorea('2026-11-14T12:00',9),'2026-11-14 12:00 KST (UTC+09:00)'));
+test('invalid dates and offset rejected',()=>{for(const [d,o]of [['',0],['2026-02-30T12:00',0],['2026-11-14T25:00',0],['2026-11-14T12:00',''],['2026-11-14T12:00',15],['2026-11-14T12:00',5.1]])assert.throws(()=>toKorea(d,o));});
+test('noindex and versioned assets on both pages',async()=>{for(const f of ['index.html','about.html']){const s=await readFile(''+f,'utf8');assert.ok(s.includes('name="robots" content="noindex,nofollow"'));assert.ok(s.includes('./style-v2.css'));}const app=await readFile('app-v2.js','utf8');assert.ok(app.includes("'./data-v2.js'"));assert.ok(app.includes("'./planner-v2.js'"));});
